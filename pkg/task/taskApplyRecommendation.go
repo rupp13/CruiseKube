@@ -231,7 +231,7 @@ func (a *ApplyRecommendationTask) ApplyRecommendationsWithStrategy(
 				continue
 			}
 
-			if rec.Evict {
+			if rec.Evict || rec.PodInfo.IsGuaranteedPod() {
 				podsToEvict[fmt.Sprintf("%s/%s", rec.PodInfo.Namespace, rec.PodInfo.Name)] = true
 				logging.Infof(ctx, "Evicting pod %s/%s", rec.PodInfo.Namespace, rec.PodInfo.Name)
 				if applyChanges {
@@ -392,10 +392,6 @@ func (a *ApplyRecommendationTask) applyCPURecommendation(
 	if currentCPULimit == 0.0 {
 		recommendedCPULimit = 0.0
 	}
-	if rec.PodInfo.IsGuaranteedPod() {
-		logging.Infof(ctx, "pod %s/%s is a guaranteed pod, skipping any kind of cpu changes", rec.PodInfo.Namespace, rec.PodInfo.Name)
-		return true, nil
-	}
 
 	if math.Abs(recommendedCPURequest-currentCPURequest) >= 0.001 || math.Abs(recommendedCPULimit-currentCPULimit) >= 0.001 {
 		if applyChanges {
@@ -466,8 +462,8 @@ func (a *ApplyRecommendationTask) segregateOptimizableNonOptimizablePods(ctx con
 			continue
 		}
 
-		if podInfo.IsGuaranteedPod() {
-			logging.Infof(ctx, "Pod %s/%s is a guaranteed pod, skipping", podInfo.Namespace, podInfo.Name)
+		if podInfo.IsGuaranteedPod() && !a.config.RecommendationSettings.OptimizeGuaranteedPods {
+			logging.Infof(ctx, "Skipping guaranteed pod %s/%s", podInfo.Namespace, podInfo.Name)
 			nonOptimizablePods = append(nonOptimizablePods, utils.NonOptimizablePodInfo{
 				PodInfo:       podInfo,
 				PodName:       podInfo.Name,
