@@ -23,10 +23,6 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
-const (
-	CPUClampValue = 10
-)
-
 type RecommendationResult struct {
 	NodeName                    string
 	NodeInfo                    utils.NodeResourceInfo
@@ -313,7 +309,7 @@ func (a *ApplyRecommendationTask) applyMemoryRecommendation(
 	}
 	currentMemoryRequest := float64(currentMemoryRequestQuantity.Value()) / utils.BytesToMBDivisor
 	if math.Abs(currentMemoryRequest-containerResource.MemoryRequest) > utils.MinimumMemoryRecommendation {
-		logging.Infof(ctx, "pod %s/%s memory has changed too much from %.1f MB to %.1f MB, skipping applying memory recommendation", rec.PodInfo.Namespace, rec.PodInfo.Name, currentMemoryRequest, recommendedMemoryRequest)
+		logging.Infof(ctx, "pod %s/%s memory has changed too much from %.1f MB to %.1f MB, skipping applying memory recommendation", rec.PodInfo.Namespace, rec.PodInfo.Name, currentMemoryRequest, containerResource.MemoryRequest)
 		return false, true, nil
 	}
 
@@ -383,8 +379,8 @@ func (a *ApplyRecommendationTask) applyCPURecommendation(
 	currentCPULimit := float64(currentCPULimitQuantity.MilliValue()) / 1000.0
 
 	recommendedCPURequest := utils.EnforceMinimumCPU(rec.CPU)
-	if recommendedCPURequest > CPUClampValue {
-		recommendedCPURequest = CPUClampValue
+	if recommendedCPURequest > utils.CPUClampValue {
+		recommendedCPURequest = utils.CPUClampValue
 	}
 
 	// since i cannot remove cpu limit from a burstable pod, i will set the limit to the allocatable cpu
