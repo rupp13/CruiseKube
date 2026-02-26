@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/truefoundry/cruisekube/pkg/audit"
 	"github.com/truefoundry/cruisekube/pkg/client"
 	"github.com/truefoundry/cruisekube/pkg/cluster"
 	"github.com/truefoundry/cruisekube/pkg/config"
@@ -118,6 +119,22 @@ func HandleMutatingPatch(c *gin.Context) {
 
 	disruptionPatches := buildDisruptionAnnotationPatches(ctx, &pod, stat, overrides)
 	patches = append(patches, disruptionPatches...)
+
+	if len(patches) > 0 && audit.Recorder != nil {
+		audit.Recorder.Record(ctx, clusterID, types.AuditEvent{
+			Type:     types.EventTypeNormal,
+			Category: types.EventCategoryWebhookMutation,
+			Payload: types.AuditPayload{
+				Message: fmt.Sprintf("Pod %s/%s mutated with resource recommendations", pod.Namespace, getPodName(&pod)),
+				Target:  map[string]interface{}{"kind": pod.Kind, "namespace": pod.Namespace, "name": getPodName(&pod)},
+				Details: map[string]interface{}{
+					"workloadId": workloadKey,
+					"node":       pod.Spec.NodeName,
+					"patches":    patches,
+				},
+			},
+		})
+	}
 
 	c.JSON(http.StatusOK, patches)
 }
@@ -328,7 +345,7 @@ func adjustResources(ctx context.Context, pod *corev1.Pod, clusterID string, cfg
 				logging.Infof(ctx, "Adjusted Memory for container %s from %dMB to %dMB", container.Name, currentMemoryRequest.Value()/utils.BytesToMBDivisor, recommendedMemoryBytes/utils.BytesToMBDivisor)
 			}
 		} else if cfg.RecommendationSettings.DisableMemoryApplication {
-			logging.Infof(ctx, "Skipping memory recommendation application for container %s since memory recommendationapplication is disabled", container.Name)
+			logging.Infof(ctx, "Skipping memory recommendation application for container %s since memory recommendation application is disabled", container.Name)
 		}
 	}
 

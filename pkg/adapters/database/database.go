@@ -86,6 +86,9 @@ func (s *GormDB) createTables() error {
 	if err := s.db.AutoMigrate(&PodResourceRecommendation{}); err != nil {
 		return fmt.Errorf("failed to auto-migrate PodResourceRecommendation: %w", err)
 	}
+	if err := s.db.AutoMigrate(&AuditEventRow{}); err != nil {
+		return fmt.Errorf("failed to auto-migrate AuditEventRow: %w", err)
+	}
 	if err := s.db.AutoMigrate(&Snapshot{}); err != nil {
 		return fmt.Errorf("failed to auto-migrate Snapshot: %w", err)
 	}
@@ -508,6 +511,35 @@ func (s *GormDB) GetPodRecommendationsForWorkload(clusterID, workloadID string) 
 		})
 	}
 	return rows, nil
+}
+
+func (s *GormDB) InsertAuditEvent(clusterID string, event types.AuditEvent) error {
+	if clusterID == "" {
+		return fmt.Errorf("audit event cluster ID cannot be empty")
+	}
+	if event.Type == "" {
+		return fmt.Errorf("audit event type cannot be empty")
+	}
+	if event.Category == "" {
+		return fmt.Errorf("audit event category cannot be empty")
+	}
+	payloadJSON, err := json.Marshal(event.Payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal audit payload: %w", err)
+	}
+	if string(payloadJSON) == "{}" || string(payloadJSON) == "null" {
+		return fmt.Errorf("audit event payload cannot be empty")
+	}
+	row := AuditEventRow{
+		ClusterID: clusterID,
+		Type:      string(event.Type),
+		Category:  string(event.Category),
+		Payload:   string(payloadJSON),
+	}
+	if err := s.db.Create(&row).Error; err != nil {
+		return fmt.Errorf("failed to insert audit event: %w", err)
+	}
+	return nil
 }
 
 func (s *GormDB) InsertSnapshot(snapshot *types.SnapshotPayload) error {

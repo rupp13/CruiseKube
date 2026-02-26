@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/truefoundry/cruisekube/pkg/audit"
 	"github.com/truefoundry/cruisekube/pkg/contextutils"
 	"github.com/truefoundry/cruisekube/pkg/logging"
 	"github.com/truefoundry/cruisekube/pkg/repository/storage"
@@ -256,6 +257,36 @@ func (t *DisruptionForceTask) reconcilePod(ctx context.Context, pod *corev1.Pod,
 			return false, fmt.Errorf("failed to update pod: %w", err)
 		}
 		logging.Infof(ctx, "Updated pod %s/%s", pod.Namespace, pod.Name)
+		if audit.Recorder != nil {
+			target := map[string]interface{}{"kind": pod.Kind, "namespace": pod.Namespace, "name": pod.Name}
+			if state == StateIn {
+				audit.Recorder.Record(ctx, t.config.ClusterID, types.AuditEvent{
+					Type:     types.EventTypeNormal,
+					Category: types.EventCategoryPODDisruptionBlockRemoved,
+					Payload: types.AuditPayload{
+						Message: fmt.Sprintf("DND annotations removed for disruption window for pod %s/%s", pod.Namespace, pod.Name),
+						Target:  target,
+						Details: map[string]interface{}{
+							"workloadId": utils.GetWorkloadKey(workloadInfo.Kind, workloadInfo.Namespace, workloadInfo.Name),
+							"node":       pod.Spec.NodeName,
+						},
+					},
+				})
+			} else {
+				audit.Recorder.Record(ctx, t.config.ClusterID, types.AuditEvent{
+					Type:     types.EventTypeNormal,
+					Category: types.EventCategoryPODDisruptionBlockRestored,
+					Payload: types.AuditPayload{
+						Message: fmt.Sprintf("DND annotations restored after disruption window for pod %s/%s", pod.Namespace, pod.Name),
+						Target:  target,
+						Details: map[string]interface{}{
+							"workloadId": utils.GetWorkloadKey(workloadInfo.Kind, workloadInfo.Namespace, workloadInfo.Name),
+							"node":       pod.Spec.NodeName,
+						},
+					},
+				})
+			}
+		}
 	}
 
 	return modified, nil
@@ -309,6 +340,30 @@ func (t *DisruptionForceTask) reconcilePDB(ctx context.Context, pdb *policyv1.Po
 			return false, fmt.Errorf("failed to update PDB: %w", err)
 		}
 		logging.Infof(ctx, "Updated PDB %s/%s", pdb.Namespace, pdb.Name)
+		if audit.Recorder != nil {
+			target := map[string]interface{}{"kind": pdb.Kind, "namespace": pdb.Namespace, "name": pdb.Name}
+			if state == StateIn {
+				audit.Recorder.Record(ctx, t.config.ClusterID, types.AuditEvent{
+					Type:     types.EventTypeNormal,
+					Category: types.EventCategoryPDBRelaxed,
+					Payload: types.AuditPayload{
+						Message: fmt.Sprintf("PDB %s/%s relaxed for disruption window", pdb.Namespace, pdb.Name),
+						Target:  target,
+						Details: map[string]interface{}{},
+					},
+				})
+			} else {
+				audit.Recorder.Record(ctx, t.config.ClusterID, types.AuditEvent{
+					Type:     types.EventTypeNormal,
+					Category: types.EventCategoryPDBRestored,
+					Payload: types.AuditPayload{
+						Message: fmt.Sprintf("PDB %s/%s restored after disruption window", pdb.Namespace, pdb.Name),
+						Target:  target,
+						Details: map[string]interface{}{},
+					},
+				})
+			}
+		}
 	}
 
 	return modified, nil

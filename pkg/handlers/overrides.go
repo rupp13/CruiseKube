@@ -6,11 +6,10 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/gin-gonic/gin"
 	"github.com/truefoundry/cruisekube/pkg/logging"
 	"github.com/truefoundry/cruisekube/pkg/repository/storage"
 	"github.com/truefoundry/cruisekube/pkg/types"
-
-	"github.com/gin-gonic/gin"
 )
 
 func UpdateWorkloadOverridesHandler(c *gin.Context) {

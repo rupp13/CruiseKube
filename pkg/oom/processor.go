@@ -2,12 +2,14 @@ package oom
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 
+	"github.com/truefoundry/cruisekube/pkg/audit"
 	"github.com/truefoundry/cruisekube/pkg/config"
 	"github.com/truefoundry/cruisekube/pkg/logging"
 	"github.com/truefoundry/cruisekube/pkg/repository/storage"
@@ -150,4 +152,21 @@ func (p *Processor) processOOMEvent(ctx context.Context, oomInfo Info) {
 	}
 
 	logging.Infof(ctx, "Successfully evicted pod %s/%s after OOM. New pod will be created with updated memory recommendations via webhook", oomInfo.Namespace, oomInfo.PodName)
+	if audit.Recorder != nil {
+		audit.Recorder.Record(ctx, p.clusterID, types.AuditEvent{
+			Type:     types.EventTypeNormal,
+			Category: types.EventCategoryOOMEvent,
+			Payload: types.AuditPayload{
+				Message: fmt.Sprintf("Pod %s/%s evicted after OOM; new pod will receive updated memory via webhook", oomInfo.Namespace, oomInfo.PodName),
+				Target:  map[string]interface{}{"kind": pod.Kind, "namespace": oomInfo.Namespace, "name": oomInfo.PodName},
+				Details: map[string]interface{}{
+					"workloadId":         workloadID,
+					"node":               oomInfo.NodeName,
+					"containerName":      containerName,
+					"memoryLimit":        float64(oomInfo.MemoryLimit) / utils.BytesToMBDivisor,
+					"lastObservedMemory": float64(oomInfo.LastObservedMemory) / utils.BytesToMBDivisor,
+				},
+			},
+		})
+	}
 }

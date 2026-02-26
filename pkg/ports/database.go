@@ -42,6 +42,8 @@ type Database interface {
 	GetPodRecommendationsForCluster(clusterID string) ([]types.PodResourceRecommendationRow, error)
 	GetPodRecommendationsForWorkload(clusterID, workloadID string) ([]types.PodResourceRecommendationRow, error)
 
+	// Audit
+	InsertAuditEvent(clusterID string, event types.AuditEvent) error
 	// Node Snapshots
 	InsertSnapshot(snapshot *types.SnapshotPayload) error
 	// Settings

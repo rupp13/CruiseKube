@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/truefoundry/cruisekube/pkg/audit"
 	"github.com/truefoundry/cruisekube/pkg/cluster"
 	"github.com/truefoundry/cruisekube/pkg/logging"
 	"github.com/truefoundry/cruisekube/pkg/task/utils"
@@ -53,7 +54,7 @@ func KillswitchHandler(c *gin.Context) {
 	}
 
 	// Step 2: kill pods with adjusted resources
-	podsAnalyzed, podsKilled, killedPods, errors := analyzeAndKillPods(ctx, clients.KubeClient, dryRun)
+	podsAnalyzed, podsKilled, killedPods, errors := analyzeAndKillPods(ctx, clients.KubeClient, clusterID, dryRun)
 	response.PodsAnalyzed = podsAnalyzed
 	response.PodsKilled = podsKilled
 	response.KilledPods = append(response.KilledPods, killedPods...)
@@ -95,7 +96,7 @@ func deleteMutatingWebhookConfiguration(ctx context.Context, kubeClient *kuberne
 	return nil
 }
 
-func analyzeAndKillPods(ctx context.Context, kubeClient *kubernetes.Clientset, dryRun bool) (int, int, []string, []string) {
+func analyzeAndKillPods(ctx context.Context, kubeClient *kubernetes.Clientset, clusterID string, dryRun bool) (int, int, []string, []string) {
 	var errors []string
 	var killedPods []string
 	podsAnalyzed := 0
@@ -146,6 +147,21 @@ func analyzeAndKillPods(ctx context.Context, kubeClient *kubernetes.Clientset, d
 				killedPodName := fmt.Sprintf("%s/%s", pod.Namespace, pod.Name)
 				killedPods = append(killedPods, killedPodName)
 				logging.Infof(ctx, "Killed pod %s (reason: %s)", killedPodName, reason)
+				if !dryRun && audit.Recorder != nil {
+					audit.Recorder.Record(ctx, clusterID, types.AuditEvent{
+						Type:     types.EventTypeNormal,
+						Category: types.EventCategoryPODEviction,
+						Payload: types.AuditPayload{
+							Message: fmt.Sprintf("Pod (%s/%s) killed by user (killswitch): %s", pod.Namespace, pod.Name, reason),
+							Target:  map[string]interface{}{"kind": pod.Kind, "namespace": pod.Namespace, "name": pod.Name},
+							Details: map[string]interface{}{
+								"workloadId": utils.GetWorkloadKey(workloadInfo.Kind, workloadInfo.Namespace, workloadInfo.Name),
+								"node":       pod.Spec.NodeName,
+								"reason":     reason,
+							},
+						},
+					})
+				}
 			} else {
 				errors = append(errors, fmt.Sprintf("Failed to kill pod %s/%s: %s", pod.Namespace, pod.Name, evictErr))
 			}

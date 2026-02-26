@@ -6,9 +6,11 @@ import (
 
 	"github.com/prometheus/common/model"
 	"github.com/truefoundry/cruisekube/pkg/adapters/metricsProvider/prometheus"
+	"github.com/truefoundry/cruisekube/pkg/audit"
 	"github.com/truefoundry/cruisekube/pkg/contextutils"
 	"github.com/truefoundry/cruisekube/pkg/logging"
 	"github.com/truefoundry/cruisekube/pkg/task/utils"
+	"github.com/truefoundry/cruisekube/pkg/types"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/dynamic"
@@ -92,10 +94,14 @@ func (n *NodeLoadMonitoringTask) Run(ctx context.Context) error {
 
 	for _, node := range nodes.Items {
 		processedNodes++
-		loadAvg, exists := nodeLoadData[node.Name]
+		loadAvg, loadDataExists := nodeLoadData[node.Name]
 
-		isOverloaded := exists && loadAvg > LoadThreshold
+		isOverloaded := loadDataExists && loadAvg > LoadThreshold
 		hasOverloadTaint := n.nodeHasOverloadTaint(&node)
+		details := map[string]interface{}{}
+		if loadDataExists {
+			details["loadRatio"] = loadAvg
+		}
 
 		if isOverloaded && !hasOverloadTaint {
 			if err := n.addOverloadTaint(ctx, &node); err != nil {
@@ -103,16 +109,38 @@ func (n *NodeLoadMonitoringTask) Run(ctx context.Context) error {
 			} else {
 				taintsAdded++
 				logging.Infof(ctx, "Added overload taint to node %s (load: %.2f%%)", node.Name, loadAvg*100)
+				if audit.Recorder != nil {
+					audit.Recorder.Record(ctx, n.config.ClusterID, types.AuditEvent{
+						Type:     types.EventTypeNormal,
+						Category: types.EventCategoryNodeOverloadTaintAdded,
+						Payload: types.AuditPayload{
+							Message: fmt.Sprintf("Overload taint added to node %s", node.Name),
+							Target:  map[string]interface{}{"kind": node.Kind, "name": node.Name},
+							Details: details,
+						},
+					})
+				}
 			}
 		} else if !isOverloaded && hasOverloadTaint {
 			if err := n.removeOverloadTaint(ctx, &node); err != nil {
 				logging.Errorf(ctx, "Error removing taint from node %s: %v", node.Name, err)
 			} else {
 				taintsRemoved++
-				if exists {
+				if loadDataExists {
 					logging.Infof(ctx, "Removed overload taint from node %s (load: %.2f%%)", node.Name, loadAvg*100)
 				} else {
 					logging.Infof(ctx, "Removed overload taint from node %s (no load data)", node.Name)
+				}
+				if audit.Recorder != nil {
+					audit.Recorder.Record(ctx, n.config.ClusterID, types.AuditEvent{
+						Type:     types.EventTypeNormal,
+						Category: types.EventCategoryNodeOverloadTaintRemoved,
+						Payload: types.AuditPayload{
+							Message: fmt.Sprintf("Overload taint removed from node %s", node.Name),
+							Target:  map[string]interface{}{"kind": node.Kind, "name": node.Name},
+							Details: details,
+						},
+					})
 				}
 			}
 		}

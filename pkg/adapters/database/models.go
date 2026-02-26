@@ -68,14 +68,28 @@ func (PodResourceRecommendation) TableName() string {
 	return "pod_resource_recommendations"
 }
 
+// AuditEventRow is the DB row for an audit event. Payload is JSON: { "message", "target", "before", "after", "details" }.
+type AuditEventRow struct {
+	ID        uint      `gorm:"column:id;primaryKey;autoIncrement"`
+	ClusterID string    `gorm:"column:cluster_id;index;not null"`
+	Cluster   Cluster   `gorm:"foreignKey:ClusterID;references:ClusterID"`
+	Type      string    `gorm:"column:type;not null"`
+	Category  string    `gorm:"column:category;index;not null"`
+	Payload   string    `gorm:"column:payload;type:text;not null"`
+	CreatedAt time.Time `gorm:"column:created_at;autoCreateTime"`
+}
+
+func (AuditEventRow) TableName() string {
+	return "audit_events"
+}
+
 // Snapshot is the DB row for a cluster-level node stats snapshot (one per apply-recommendation run).
 type Snapshot struct {
 	ID        uint      `gorm:"column:id;primaryKey;autoIncrement"`
-	ClusterID string    `gorm:"column:cluster_id;index"`
+	ClusterID string    `gorm:"column:cluster_id;index;not null"`
 	Cluster   Cluster   `gorm:"foreignKey:ClusterID;references:ClusterID"`
-	Data      string    `gorm:"column:data"` // JSON of SnapshotData (CPU, Memory, Nodes, PodsCount)
+	Data      string    `gorm:"column:data;not null"` // JSON of SnapshotData (CPU, Memory, Nodes, PodsCount)
 	CreatedAt time.Time `gorm:"column:created_at;autoCreateTime"`
-	UpdatedAt time.Time `gorm:"column:updated_at;autoUpdateTime;index"`
 }
 
 func (Snapshot) TableName() string {
