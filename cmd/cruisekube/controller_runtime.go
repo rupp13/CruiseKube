@@ -14,9 +14,11 @@ import (
 	"github.com/truefoundry/cruisekube/pkg/cluster"
 	"github.com/truefoundry/cruisekube/pkg/config"
 	"github.com/truefoundry/cruisekube/pkg/contextutils"
+	"github.com/truefoundry/cruisekube/pkg/handlers"
 	"github.com/truefoundry/cruisekube/pkg/logging"
 	"github.com/truefoundry/cruisekube/pkg/middleware"
 	"github.com/truefoundry/cruisekube/pkg/oom"
+	"github.com/truefoundry/cruisekube/pkg/ports"
 	"github.com/truefoundry/cruisekube/pkg/repository/storage"
 	"github.com/truefoundry/cruisekube/pkg/server"
 	"github.com/truefoundry/cruisekube/pkg/task"
@@ -26,6 +28,7 @@ type controllerRuntime struct {
 	clusterManager cluster.Manager
 	promClient     *prometheus.PrometheusProvider
 	storageRepo    *storage.Storage
+	auditRecorder  *audit.Audit
 }
 
 func startControllerRuntime(runtimeManager *runtimeManager, cfg *config.Config) error {
@@ -39,7 +42,18 @@ func startControllerRuntime(runtimeManager *runtimeManager, cfg *config.Config) 
 		return nil
 	})
 
-	startControllerHTTPServer(runtimeManager, cfg, runtime.clusterManager)
+	handlerDeps, err := handlers.NewHandlerDependencies(
+		runtime.storageRepo,
+		runtime.clusterManager,
+		cfg,
+		runtime.auditRecorder,
+		nil,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to initialize handler dependencies: %w", err)
+	}
+
+	startControllerHTTPServer(runtimeManager, cfg, handlerDeps)
 	startOOMWorkers(runtimeManager.ctx, cfg, runtime.clusterManager, runtime.storageRepo)
 	registerControllerTasks(runtimeManager.ctx, cfg, runtime.clusterManager, runtime.promClient, runtime.storageRepo)
 	if err := runtime.clusterManager.ScheduleAllTasks(runtimeManager.ctx); err != nil {
@@ -50,10 +64,17 @@ func startControllerRuntime(runtimeManager *runtimeManager, cfg *config.Config) 
 }
 
 func buildControllerRuntime(runtimeManager *runtimeManager, cfg *config.Config) (controllerRuntime, error) {
-	storageRepo, err := initStorageRepo(runtimeManager, cfg)
+	databaseAdapter, err := initDatabaseAdapter(runtimeManager, cfg)
 	if err != nil {
 		return controllerRuntime{}, err
 	}
+
+	storageRepo, err := initStorageRepo(runtimeManager.ctx, databaseAdapter)
+	if err != nil {
+		return controllerRuntime{}, err
+	}
+
+	auditRecorder := initAuditRecorder(runtimeManager, databaseAdapter)
 	clusterManager, promClient, err := buildClusterRuntime(runtimeManager.ctx, cfg)
 	if err != nil {
 		return controllerRuntime{}, err
@@ -63,11 +84,11 @@ func buildControllerRuntime(runtimeManager *runtimeManager, cfg *config.Config) 
 		clusterManager: clusterManager,
 		promClient:     promClient,
 		storageRepo:    storageRepo,
+		auditRecorder:  auditRecorder,
 	}, nil
 }
 
-func initStorageRepo(runtimeManager *runtimeManager, cfg *config.Config) (*storage.Storage, error) {
-	ctx := runtimeManager.ctx
+func initDatabaseAdapter(runtimeManager *runtimeManager, cfg *config.Config) (ports.Database, error) {
 	databaseAdapter, err := database.NewDatabase(database.DatabaseConfig{
 		Type:     cfg.DB.Type,
 		Host:     cfg.DB.Host,
@@ -80,26 +101,37 @@ func initStorageRepo(runtimeManager *runtimeManager, cfg *config.Config) (*stora
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize database: %w", err)
 	}
-	logging.Infof(ctx, "Database initialized")
+	logging.Infof(runtimeManager.ctx, "Database initialized")
 	runtimeManager.AddCleanup(func(context.Context) error {
 		return databaseAdapter.Close()
 	})
 
+	return databaseAdapter, nil
+}
+
+func initStorageRepo(ctx context.Context, databaseAdapter ports.Database) (*storage.Storage, error) {
 	storageRepo, err := storage.NewStorageRepo(databaseAdapter)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize storage: %w", err)
 	}
 	logging.Infof(ctx, "Storage Repo initialized")
 
+	// TODO: Remove global singleton assignments once all handlers are migrated to HandlerDependencies.
 	storage.Stg = storageRepo
+	return storageRepo, nil
+}
+
+func initAuditRecorder(runtimeManager *runtimeManager, databaseAdapter ports.Database) *audit.Audit {
+	ctx := runtimeManager.ctx
 	recorder := audit.NewAudit(ctx, databaseAdapter, audit.Options{})
+	// TODO: Remove global singleton assignments once all handlers are migrated to HandlerDependencies.
 	audit.Recorder = recorder
 	runtimeManager.AddCleanup(func(context.Context) error {
 		recorder.Close()
 		return nil
 	})
 
-	return storageRepo, nil
+	return recorder
 }
 
 func buildClusterRuntime(ctx context.Context, cfg *config.Config) (cluster.Manager, *prometheus.PrometheusProvider, error) {
@@ -166,14 +198,14 @@ func buildInClusterRuntime(ctx context.Context, cfg *config.Config) (cluster.Man
 	return clusterManager, promClient, nil
 }
 
-func startControllerHTTPServer(runtimeManager *runtimeManager, cfg *config.Config, clusterManager cluster.Manager) {
+func startControllerHTTPServer(runtimeManager *runtimeManager, cfg *config.Config, handlerDeps handlers.HandlerDependencies) {
 	engine := server.SetupServerEngine(
-		clusterManager,
+		handlerDeps,
 		middleware.AuthAPI(),
 		middleware.AuthWebhook(),
-		middleware.EnsureClusterExists(),
+		middleware.EnsureClusterExists(handlerDeps.ClusterManager),
 		cfg.Server.EnableDevAPIs,
-		middleware.Common(clusterManager, cfg)...,
+		middleware.Common()...,
 	)
 
 	startHTTPServer(runtimeManager, "controller HTTP server", "Starting HTTP server on :"+cfg.Server.Port, &http.Server{

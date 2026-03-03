@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/truefoundry/cruisekube/pkg/client"
 	"github.com/truefoundry/cruisekube/pkg/config"
 	"github.com/truefoundry/cruisekube/pkg/handlers"
 	"github.com/truefoundry/cruisekube/pkg/middleware"
@@ -14,8 +15,18 @@ func startWebhookRuntime(runtimeManager *runtimeManager, cfg *config.Config) {
 	webhookPort := cfg.Webhook.Port
 	certDir := cfg.Webhook.CertsDir
 
-	handlers.InitRecommenderServiceClient(cfg)
-	webhookEngine := server.SetupWebhookServerEngine(middleware.Common(nil, cfg)...)
+	handlerDeps, err := handlers.NewWebhookHandlerDependencies(
+		cfg,
+		client.NewRecommenderServiceClientWithClusterToken(
+			cfg.Webhook.StatsURL.Host,
+			cfg.Webhook.StatsURL.TfyClusterToken,
+		),
+	)
+	if err != nil {
+		panic(err)
+	}
+
+	webhookEngine := server.SetupWebhookServerEngine(handlerDeps, middleware.Common()...)
 	webhookServer := &http.Server{
 		Addr:              ":" + webhookPort,
 		Handler:           webhookEngine,
