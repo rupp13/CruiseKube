@@ -16,6 +16,11 @@ import (
 	"github.com/truefoundry/cruisekube/pkg/types"
 )
 
+const (
+	YesValue = "Yes"
+	NoValue  = "No"
+)
+
 func (deps HandlerDependencies) RecommendationAnalysisHandlerForCluster(c *gin.Context) {
 	c.Header("Content-Type", "application/json")
 	clusterID := c.Param("clusterID")
@@ -61,7 +66,7 @@ func generateRecommendationAnalysisForCluster(ctx context.Context, clusterID str
 				}
 				currentRequestedCPU := containerResource.CPURequest
 				currentRequestedMemory := containerResource.MemoryRequest
-				analysisItem := analyzeWorkloadStats(rec.PodInfo.Stats, rec.PodInfo.Name, rec.ContainerName, result.NodeName, currentRequestedCPU, rec.CPU, currentRequestedMemory, rec.Memory)
+				analysisItem := analyzeWorkloadStats(ctx, rec.PodInfo.Stats, rec.PodInfo.Name, rec.ContainerName, result.NodeName, currentRequestedCPU, rec.CPU, currentRequestedMemory, rec.Memory)
 				analysis = append(analysis, analysisItem)
 				totalCurrentRequests += currentRequestedCPU
 				totalDifferences += analysisItem.CPUDifference
@@ -84,18 +89,15 @@ func generateRecommendationAnalysisForCluster(ctx context.Context, clusterID str
 	}, nil
 }
 
-func analyzeWorkloadStats(stat *utils.WorkloadStat, podName, containerName, nodeName string, currentRequestedCPU, recommendedCPU, currentRequestedMemory, recommendedMemory float64) types.RecommendationAnalysisItem {
+func analyzeWorkloadStats(ctx context.Context, stat *utils.WorkloadStat, podName, containerName, nodeName string, currentRequestedCPU, recommendedCPU, currentRequestedMemory, recommendedMemory float64) types.RecommendationAnalysisItem {
 	blockingKarpenter := NoValue
 	if stat.Constraints != nil && stat.Constraints.BlockingConsolidation {
 		blockingKarpenter = YesValue
 	}
 
-	cpuUsage7Days := "N/A"
 	containerStat, err := stat.GetContainerStats(containerName)
-	if err == nil && containerStat.CPU7Day != nil {
-		cpuUsage7Days = fmt.Sprintf("%.2f / %.2f / %.2f / %.2f / %.2f",
-			containerStat.CPU7Day.Max, containerStat.CPU7Day.P99,
-			containerStat.CPU7Day.P90, containerStat.CPU7Day.P75, containerStat.CPU7Day.P50)
+	if err != nil {
+		logging.Warnf(ctx, "Failed to get container stats for %s/%s container %s: %v", stat.Namespace, stat.Name, containerName, err)
 	}
 
 	spikeRange := 0.0
@@ -117,7 +119,6 @@ func analyzeWorkloadStats(stat *utils.WorkloadStat, podName, containerName, node
 		WorkloadName:           stat.Name,
 		ContainerName:          containerName,
 		PodName:                podName,
-		CPUUsage7Days:          cpuUsage7Days,
 		SpikeRange:             spikeRange,
 		RequestGap:             requestGap,
 		BlockingKarpenter:      blockingKarpenter,
