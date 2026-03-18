@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/cenkalti/backoff/v5"
@@ -183,6 +185,7 @@ func buildLocalClusterRuntime(ctx context.Context, cfg *config.Config) (cluster.
 		clusterCtx,
 		prometheus.GetPrometheusClientConfig(
 			cfg.Dependencies.Local.PrometheusURL,
+			cfg.Dependencies.Local.PrometheusBearerToken,
 			cfg.Dependencies.Local.InsecureSkipTLSVerify,
 		),
 	)
@@ -208,10 +211,22 @@ func buildInClusterRuntime(ctx context.Context, cfg *config.Config) (cluster.Man
 		return nil, nil, fmt.Errorf("failed to create dynamic client: %w", err)
 	}
 
+	bearerToken := cfg.Dependencies.InCluster.PrometheusBearerToken
+	if bearerToken == "" {
+		tokenBytes, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/token")
+		if err == nil {
+			bearerToken = strings.TrimSpace(string(tokenBytes))
+			logging.Infof(clusterCtx, "Using service account token for Prometheus authentication")
+		} else {
+			logging.Infof(clusterCtx, "No Prometheus bearer token configured and service account token not available: %v", err)
+		}
+	}
+
 	promClient, err := prometheus.NewPrometheusProvider(
 		clusterCtx,
 		prometheus.GetPrometheusClientConfig(
 			cfg.Dependencies.InCluster.PrometheusURL,
+			bearerToken,
 			cfg.Dependencies.InCluster.InsecureSkipTLSVerify,
 		),
 	)

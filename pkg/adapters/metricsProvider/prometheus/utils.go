@@ -24,10 +24,10 @@ func (rt *BearerTokenRoundTripper) RoundTrip(req *http.Request) (*http.Response,
 }
 
 // GetPrometheusClientConfig returns optimized default configuration.
-func GetPrometheusClientConfig(prometheusURL string, insecureSkipVerify bool) *PrometheusClientConfig {
+func GetPrometheusClientConfig(prometheusURL string, bearerToken string, insecureSkipVerify bool) *PrometheusClientConfig {
 	return &PrometheusClientConfig{
 		PrometheusURL:       prometheusURL,
-		BearerToken:         "",
+		BearerToken:         bearerToken,
 		QueryTimeout:        5 * time.Minute,  // Per-query timeout
 		MaxConnsPerHost:     100,              // Increased connections per host
 		MaxIdleConns:        50,               // Keep connections alive

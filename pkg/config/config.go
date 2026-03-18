@@ -58,11 +58,13 @@ type Dependencies struct {
 type LocalDeps struct {
 	KubeconfigPath        string `yaml:"kubeconfigPath" mapstructure:"kubeconfigPath"`
 	PrometheusURL         string `yaml:"prometheusURL" mapstructure:"prometheusURL"`
+	PrometheusBearerToken string `yaml:"prometheusBearerToken" mapstructure:"prometheusBearerToken"`
 	InsecureSkipTLSVerify bool   `yaml:"insecureSkipTLSVerify" mapstructure:"insecureSkipTLSVerify"`
 }
 
 type InClusterDeps struct {
 	PrometheusURL         string `yaml:"prometheusURL" mapstructure:"prometheusURL"`
+	PrometheusBearerToken string `yaml:"prometheusBearerToken" mapstructure:"prometheusBearerToken"`
 	InsecureSkipTLSVerify bool   `yaml:"insecureSkipTLSVerify" mapstructure:"insecureSkipTLSVerify"`
 }
 
