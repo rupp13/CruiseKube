@@ -318,11 +318,19 @@ func (s *AdjustAmongstPodsDistributedStrategy) performEvictionLoop(
 			if containerStat.ContainerType == types.InitContainer {
 				continue
 			}
+			evictCPU := containerStat.CPUStats.Max
+			if containerStat.SimplePredictionsCPU != nil {
+				evictCPU = containerStat.SimplePredictionsCPU.MaxValue
+			}
+			evictMemory := containerStat.MemoryStats.Max
+			if containerStat.SimplePredictionsMemory != nil {
+				evictMemory = containerStat.SimplePredictionsMemory.MaxValue
+			}
 			result.PodContainerRecommendations = append(result.PodContainerRecommendations, utils.PodContainerRecommendation{
 				PodInfo:       podInfo,
 				ContainerName: containerStat.ContainerName,
-				CPU:           containerStat.SimplePredictionsCPU.MaxValue,
-				Memory:        containerStat.SimplePredictionsMemory.MaxValue,
+				CPU:           evictCPU,
+				Memory:        evictMemory,
 				Evict:         true,
 			})
 		}
@@ -357,7 +365,7 @@ func (s *AdjustAmongstPodsDistributedStrategy) GetRecommendedAndRestCPU(ctx cont
 		pmax = containerStat.SimplePredictionsCPU.MaxValue
 	}
 
-	rest := (pmax - recommendedCPU)
+	rest := math.Max(0, pmax-recommendedCPU)
 
 	logging.Infof(ctx, "Variable diff calculation for %s/%s/%s: recommended_cpu=%.1f, pmax=%.3f, rest=%.3f",
 		pod.Namespace, pod.Name, containerStat.ContainerName,
